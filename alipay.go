@@ -154,7 +154,7 @@ func (this *Client) doRequest(method string, param Param, result interface{}) (e
 			return kSignNotFound
 		}
 
-		if ok, err := verifyData([]byte(content), this.SignType, sign, this.aliPublicKey); ok == false {
+		if ok, err := verifyData([]byte(content), this.SignType, sign, this.AliPayPublicKey); ok == false {
 			return err
 		}
 	}

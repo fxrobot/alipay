@@ -17,6 +17,7 @@ type Trade struct {
 	BusinessParams     string `json:"business_params,omitempty"`      // 商户传入业务信息，具体值要和支付宝约定，应用于安全，营销等参数直传场景，格式为json格式
 	DisablePayChannels string `json:"disable_pay_channels,omitempty"` // 禁用渠道，用户不可用指定渠道支付 当有多个渠道时用“,”分隔 注，与enable_pay_channels互斥
 	EnablePayChannels  string `json:"enable_pay_channels,omitempty"`  // 可用渠道，用户只能在指定渠道范围内支付  当有多个渠道时用“,”分隔 注，与disable_pay_channels互斥
+
 	//ExtUserInfo          string `json:"ext_user_info,omitempty"`        // 外部指定买家
 	ExtendParams         string `json:"extend_params,omitempty"`     // 业务扩展参数，详见下面的“业务扩展参数说明”
 	GoodsType            string `json:"goods_type,omitempty"`        // 商品主类型：0—虚拟类商品，1—实物类商品 注：虚拟类商品不支持使用花呗渠道
