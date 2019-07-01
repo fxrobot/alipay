@@ -2,6 +2,7 @@ package alipay
 
 import (
 	"crypto"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,23 +21,40 @@ var (
 	kSignNotFound = errors.New("alipay: sign content not found")
 )
 
-type AliPay struct {
+type Client struct {
 	appId              string
 	apiDomain          string
 	notifyVerifyDomain string
-	//partnerId          string
-	privateKey      []byte
-	AliPayPublicKey []byte
-	Client          *http.Client
-	SignType        string
+	appPrivateKey      *rsa.PrivateKey // 应用私钥
+	aliPublicKey       *rsa.PublicKey  // 支付宝公钥
+	Client             *http.Client
+	SignType           string
 }
 
-func New(appId, aliPublicKey, privateKey string, isProduction bool) (client *AliPay) {
-	client = &AliPay{}
+// New 初始化支付宝客户端
+// appId - 支付宝应用 id
+// aliPublicKey - 支付宝公钥，创建支付宝应用之后，从支付宝后台获取
+// privateKey - 应用私钥，开发者自己生成
+// isProduction - 是否为生产环境，传 false 的时候为沙箱环境，用于开发测试，正式上线的时候需要改为 true
+func New(appId, aliPublicKey, privateKey string, isProduction bool) (client *Client, err error) {
+	pri, err := encoding.ParsePKCS1PrivateKey(encoding.FormatPrivateKey(privateKey))
+	if err != nil {
+		return nil, err
+	}
+
+	var pub *rsa.PublicKey
+	if len(aliPublicKey) > 0 {
+		pub, err = encoding.ParsePKCS1PublicKey(encoding.FormatPublicKey(aliPublicKey))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	client = &Client{}
 	client.appId = appId
-	//client.partnerId = partnerId
-	client.privateKey = encoding.FormatPrivateKey(privateKey)
-	client.AliPayPublicKey = encoding.FormatPublicKey(aliPublicKey)
+	client.appPrivateKey = pri
+	client.aliPublicKey = pub
+
 	client.Client = http.DefaultClient
 	if isProduction {
 		client.apiDomain = kProductionURL
@@ -46,10 +64,10 @@ func New(appId, aliPublicKey, privateKey string, isProduction bool) (client *Ali
 		client.notifyVerifyDomain = kSandboxURL
 	}
 	client.SignType = K_SIGN_TYPE_RSA2
-	return client
+	return client, nil
 }
 
-func (this *AliPay) URLValues(param AliPayParam) (value url.Values, err error) {
+func (this *Client) URLValues(param Param) (value url.Values, err error) {
 	var p = url.Values{}
 	p.Add("app_id", this.appId)
 	p.Add("method", param.APIName())
@@ -76,7 +94,7 @@ func (this *AliPay) URLValues(param AliPayParam) (value url.Values, err error) {
 	} else {
 		hash = crypto.SHA256
 	}
-	sign, err := signWithPKCS1v15(p, this.privateKey, hash)
+	sign, err := signWithPKCS1v15(p, this.appPrivateKey, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +102,7 @@ func (this *AliPay) URLValues(param AliPayParam) (value url.Values, err error) {
 	return p, nil
 }
 
-func (this *AliPay) doRequest(method string, param AliPayParam, results interface{}) (err error) {
+func (this *Client) doRequest(method string, param Param, result interface{}) (err error) {
 	var buf io.Reader
 	if param != nil {
 		p, err := this.URLValues(param)
@@ -113,7 +131,7 @@ func (this *AliPay) doRequest(method string, param AliPayParam, results interfac
 		return err
 	}
 
-	if len(this.AliPayPublicKey) > 0 {
+	if this.aliPublicKey != nil {
 		var dataStr = string(data)
 
 		var rootNodeName = strings.Replace(param.APIName(), ".", "_", -1) + kResponseSuffix
@@ -141,7 +159,7 @@ func (this *AliPay) doRequest(method string, param AliPayParam, results interfac
 		}
 	}
 
-	err = json.Unmarshal(data, results)
+	err = json.Unmarshal(data, result)
 	if err != nil {
 		return err
 	}
@@ -149,12 +167,12 @@ func (this *AliPay) doRequest(method string, param AliPayParam, results interfac
 	return err
 }
 
-func (this *AliPay) DoRequest(method string, param AliPayParam, results interface{}) (err error) {
-	return this.doRequest(method, param, results)
+func (this *Client) DoRequest(method string, param Param, result interface{}) (err error) {
+	return this.doRequest(method, param, result)
 }
 
-func (this *AliPay) VerifySign(data url.Values) (ok bool, err error) {
-	return verifySign(data, this.AliPayPublicKey)
+func (this *Client) VerifySign(data url.Values) (ok bool, err error) {
+	return verifySign(data, this.aliPublicKey)
 }
 
 func parserJSONSource(rawData string, nodeName string, nodeIndex int) (content string, sign string) {
@@ -176,7 +194,7 @@ func parserJSONSource(rawData string, nodeName string, nodeIndex int) (content s
 	return content, sign
 }
 
-func signWithPKCS1v15(param url.Values, privateKey []byte, hash crypto.Hash) (s string, err error) {
+func signWithPKCS1v15(param url.Values, privateKey *rsa.PrivateKey, hash crypto.Hash) (s string, err error) {
 	if param == nil {
 		param = make(url.Values, 0)
 	}
@@ -190,7 +208,7 @@ func signWithPKCS1v15(param url.Values, privateKey []byte, hash crypto.Hash) (s 
 	}
 	sort.Strings(pList)
 	var src = strings.Join(pList, "&")
-	sig, err := encoding.SignPKCS1v15([]byte(src), privateKey, hash)
+	sig, err := encoding.SignPKCS1v15WithKey([]byte(src), privateKey, hash)
 	if err != nil {
 		return "", err
 	}
@@ -199,10 +217,14 @@ func signWithPKCS1v15(param url.Values, privateKey []byte, hash crypto.Hash) (s 
 }
 
 func VerifySign(data url.Values, key []byte) (ok bool, err error) {
-	return verifySign(data, key)
+	pub, err := encoding.ParsePKCS1PublicKey(encoding.FormatPublicKey(string(key)))
+	if err != nil {
+		return false, err
+	}
+	return verifySign(data, pub)
 }
 
-func verifySign(data url.Values, key []byte) (ok bool, err error) {
+func verifySign(data url.Values, key *rsa.PublicKey) (ok bool, err error) {
 	sign := data.Get("sign")
 	signType := data.Get("sign_type")
 
@@ -230,16 +252,16 @@ func verifySign(data url.Values, key []byte) (ok bool, err error) {
 	return verifyData([]byte(s), signType, sign, key)
 }
 
-func verifyData(data []byte, signType, sign string, key []byte) (ok bool, err error) {
+func verifyData(data []byte, signType, sign string, key *rsa.PublicKey) (ok bool, err error) {
 	signBytes, err := base64.StdEncoding.DecodeString(sign)
 	if err != nil {
 		return false, err
 	}
 
 	if signType == K_SIGN_TYPE_RSA {
-		err = encoding.VerifyPKCS1v15(data, signBytes, key, crypto.SHA1)
+		err = encoding.VerifyPKCS1v15WithKey(data, signBytes, key, crypto.SHA1)
 	} else {
-		err = encoding.VerifyPKCS1v15(data, signBytes, key, crypto.SHA256)
+		err = encoding.VerifyPKCS1v15WithKey(data, signBytes, key, crypto.SHA256)
 	}
 	if err != nil {
 		return false, err
