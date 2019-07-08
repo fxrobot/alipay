@@ -109,6 +109,7 @@ type AliPayTradeQueryResponse struct {
 		BuyerLogonId     string `json:"buyer_logon_id"`      // 买家支付宝账号
 		BuyerPayAmount   string `json:"buyer_pay_amount"`    // 买家实付金额，单位为元，两位小数。
 		BuyerUserId      string `json:"buyer_user_id"`       // 买家在支付宝的用户id
+		BuyerUserName    string `json:"buyer_user_name"`     // 买家在支付宝的用户名
 		BuyerUserType    string `json:"buyer_user_type"`     // 买家用户类型。CORPORATE:企业用户；PRIVATE:个人用户。
 		InvoiceAmount    string `json:"invoice_amount"`      // 交易中用户支付的可开具发票的金额，单位为元，两位小数。
 		OutTradeNo       string `json:"out_trade_no"`        // 商家订单号
